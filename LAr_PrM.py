@@ -30,6 +30,13 @@ def data_dir():
 
 def get_run_metadata(fname='LAr_Purity_Monitor_Runs_All.csv', debug=True):
     # Read in table of run metadata (containing Vc, Vag, Va etc.)
+    # 
+    # fname should be the name of the .csv file generated from:
+    # https://docs.google.com/spreadsheets/d/1Kji3os3iBWxYyT-fSda9Bmrm8J0q-8kCbXKnLPBlu7A/edit?gid=0#gid=0
+    # debug:
+    #
+    # return: dataframe containing information in the .csv file
+    
     metadata_file = os.path.join(data_dir(), fname)
     df = pd.read_csv(metadata_file, comment='#')
     if debug:

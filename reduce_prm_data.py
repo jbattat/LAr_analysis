@@ -1,3 +1,9 @@
+# Goal: take as input cathode&anode waveforms from the Purity Monitor
+# as well as a run "metadata" file (containing run params like Vc, Vag, Va, XeF reprate, etc.)
+# and extract physical quantities (Qa and Qc) and log that information
+# to an "output metadata" file
+# That output file can then be used to compute impurity level / lifetime
+
 import os
 import sys
 
@@ -8,8 +14,6 @@ from lmfit.models import ExpressionModel
 
 import LAr_PrM as pm
 
-# FIXME: this should go in the LAr_PrM.py library
-vmod = ExpressionModel(" (-2*(1e3*Q0*140)/(td*1.4)) * ( (1-exp(-x/140))*(x<td) + (exp(td/140)-1)*(exp(-x/140))*(x>=td) )")
 
 # Local directory where PrM data is stored
 data_dir = pm.data_dir()
@@ -39,20 +43,29 @@ pm.subtract_baselines(dfs, chans=['cathode', 'anode'])
 #plt.savefig('junk.pdf')
 
 
-sys.exit()
+# FIXME: this should go in the LAr_PrM.py library
+vmod = ExpressionModel(" (-2*(1e3*Q0*140)/(td*1.4)) * ( (1-exp(-x/140))*(x<td) + (exp(td/140)-1)*(exp(-x/140))*(x>=td) ) * (1*(x>t0))")
 
-
-    
-# just do 3 waveforms for now
-for ii in range(3):#len(dfs)):
-    td = 10.0 # us
-    Cf = 1.4
-    vgain = 2.0
+# just do 2 waveforms for now
+for ii in range(2):#len(dfs)):
+    t0 = 0.0
+    td = 50.0 # us
+    Cf = 1.4  # pF
+    vgain = 2.0 # unitless
     # FIXME: model assumes peak starts at first entry, but not true for data!
-    Q0 = np.max(np.abs(dfs[ii]['cathode'].values))*Cf*td/vgain
-    result = vmod.fit(dfs[ii]['cathode'], x=dfs[ii]['time'], Q0=Q0, td=td)
+    #Q0 = np.max(np.abs(dfs[ii]['cathode'].values))*Cf*td/vgain
+    Q0 = np.max(np.abs(dfs[ii]['cathode'].values))*Cf/vgain
+    print(f"Q0 = {Q0}")
+    result = vmod.fit(dfs[ii]['cathode'], x=dfs[ii]['time'], Q0=Q0, td=td, t0=t0)
     print(result.fit_report())
-    plt.plot(dfs[ii]['time'], dfs[ii]['cathode'], linewidth=0.5, color='black')
-    plt.plot(dfs[ii]['time'], result.best_fit, linewidth=0.5, color='red', linestyle='--')
+    plt.plot(dfs[ii]['time'], dfs[ii]['cathode'], linewidth=0.5, color=pm.ccol)
+    plt.plot(dfs[ii]['time'], result.best_fit, linewidth=0.5, color='green', linestyle='--')
+
+    params = vmod.make_params(Q0=Q0, td=td, t0=t0)
+    #plt.plot(dfs[ii]['time'], vmod.eval(params, x=dfs[ii]['time']), linewidth=0.5, color='red', linestyle='--')
+    
     plt.savefig(f'junk_{ii}.pdf')
     plt.clf()
+
+sys.exit()
+    
