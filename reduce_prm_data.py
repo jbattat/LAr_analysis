@@ -6,7 +6,6 @@
 
 import os
 import sys
-import glob
 
 import pandas as pd
 import numpy as np
@@ -15,42 +14,15 @@ from lmfit import Model
 
 import LAr_PrM as pm
 
-# FIXME: Move this to LAr_PrM
-# Helper class to hold key/val pairs with dot access
-class Struct(dict):
-    def __getattr__(self, key):
-        return self[key]
-
-    def __setattr__(self, key, value):
-        self[key] = value
-#obj = Struct()
-#obj.somefield = "somevalue"
-#print(obj)
-#print(obj.somefield)
-
-
-# Local directory where PrM data is stored
-data_dir = pm.data_dir()
-print(data_dir)
-
-#FIXME: environment variable?
-PRM_DIAGNOSTIC_DIR = 'diagnostic_output'
-
+# Read in the run filenames and run parameters (Vc, Vag, Va, XeF reprate, etc.)
 meta = pm.get_run_metadata(debug=False)
 
 # Specify files to be analyzed
-# Get all files in the directory:
+fnames = pm.get_files_to_analyze()   # fully qualified path
+basenames = [os.path.basename(ff) for ff in fnames] # e.g. 20250523T093233.csv 
 
-# FIXME: could do this with an external list of filenames...
-
-# FIXME: move to LAr_PrM.py
-glob_str = os.path.join(data_dir, '2025*.csv')
-fnames = glob.glob(glob_str)
-fnames = sorted(fnames)
-basenames = [os.path.basename(ff) for ff in fnames]
-#print(basenames[:3])
-#print(fnames[:3])
-
+# Local directory where PrM data is stored
+diagnostic_dir = pm.diagnostic_output_dir(verbose=True)
 
 # Load waveforms into a list of DataFrames
 dfs = []
@@ -104,7 +76,7 @@ TAU_CATHODE = 135.0
 TAU_ANODE = 133.0
 
 def nominal_params_cathode():
-    p = Struct()
+    p = pm.Struct()
     p.t0 = 10.0 # us
     p.td = 10.0 # us
     p.tau = TAU_CATHODE # us
@@ -114,7 +86,7 @@ def nominal_params_cathode():
     return p
 
 def nominal_params_anode():
-    p = Struct()
+    p = pm.Struct()
     p.t0 = 50.0 # us
     p.td = 10.0 # us
     p.tau = TAU_ANODE # us
@@ -177,63 +149,6 @@ params_anode = model_anode.make_params(t0=dict(value=guess_anode.t0, min=0),  # 
                                        k=dict(value=guess_anode.k, vary=False), # 1/us (sigmoid transition rate)
                                        )
 params_anode.add('Q0', expr='amp*Cf*0.5*td/tau') # pC
-
-#def pdump(pdict=None):
-#    cathode_params_to_log = ['t0', 'td', 'tau', 'amp', 'Cf']  # Q0?
-#    anode_params_to_log = cathode_params_to_log[:] # in general these lists can differ...
-#
-#    # Either you call this for the values in which case don't pass any arguments (pdict=None):
-#    #   hdrstr = pdump()
-#    # or you call this for the values in which case you need to pass in a dictionary of ModelResults
-#    #   valstr = pdump(pdict=dict(anode=result_anode, cathode=result_cathode))
-#    
-#    if pdict is None:
-#        cp = [f'Cathode_{p}' for p in cathode_params_to_log]
-#        ap = [f'Anode_{p}' for p in anode_params_to_log]
-#        outstr = '# '
-#        for p in cp:
-#            outstr += f'{p}, '
-#        for p in ap:
-#            outstr += f'{p}, '
-#
-#        outstr += "QA, QC"
-#
-#        # FIXME: add in lifetime, attachment coeff, purity_ppb
-#
-#        # get rid of the last comma (and space)
-#        #outstr = outstr.rstrip()
-#        #outstr = outstr.rstrip(',')
-#        
-#        return outstr
-#
-#    # else, return a string of the *values*
-#    outstr = ''
-#    # cathode, then anode
-#    for p in cathode_params_to_log:
-#        outstr += f"{pdict['cathode'].params[p].value:.4f}, "
-#    for p in anode_params_to_log:
-#        outstr += f"{pdict['anode'].params[p].value:.4f}, "
-#
-#    outstr += f"{pdict['cathode'].params['Q0'].value:.4f}, {pdict['anode'].params['Q0'].value:.4f}"
-#
-#    # FIXME add in lifetime, attachment coeff, purity ppb... (or perhaps do this in "post-processing")
-#    
-#    # get rid of the last comma (and space)
-#    #outstr = outstr.rstrip()
-#    #outstr = outstr.rstrip(',')
-#    #print("outstr = ")
-#    #print(f'[{outstr}]')
-#    return outstr
-
-
-#hdr_str = pdump()
-# pre-pend the filename
-# append the computed quantities like QA, QC, tau, kA, ppb, etc.
-#print(hdr_str)
-
-# FIXME: instead of dumping values into a .csv file, save them directly into a DataFrame
-# which you can then "dump" to a csv if desired (but you can also save to other formats).
-# you can also then "merge" the meta and reduced dataframes
 
 
 # FIXME: move this to LAr_PrM.py
@@ -307,7 +222,7 @@ for ii in range(len(dfs)):
     fname = meta["Filename"][ii] # e.g. 20250523T093233.csv 
     froot = os.path.splitext(fname)[0]   # e.g. 20250523T093233 (splitext gives: ['20250523T093233', '.csv'])
     plt.title(fname)
-    plt.savefig(os.path.join(PRM_DIAGNOSTIC_DIR, f'{froot}_wf_fit.pdf'))
+    plt.savefig(os.path.join(diagnostic_dir, f'{froot}_wf_fit.pdf'))
     plt.clf()
 
     reduced_data.append([])

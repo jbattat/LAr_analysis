@@ -4,6 +4,7 @@
 import numpy as np
 import pandas as pd
 import os
+from glob import glob
 
 acol = 'red'  # color for anode waveforms
 ccol = 'blue' # color for cathode waveforms
@@ -22,7 +23,7 @@ def sigmoid(t, t0, k):
     #     (can think of k as 1/"sigma" where sigma is the width of the transition)
     return 1/(1+np.exp(-k*(t-t0)))
 
-def data_dir():
+def data_dir(verbose=False):
     # Get the location of PrM data (set by environment variable)
     # User should either set this environment variable in their .bashrc file
     # (or similar), or set the env variable at the command line prior to running the analysis
@@ -35,7 +36,29 @@ def data_dir():
     except: # use the current directory if the environment variable is not set
         dataDir = os.path.join(os.getcwd(), 'data')
 
+    if verbose:
+        print(f"Data will be read from: {dataDir}")
     return dataDir
+
+def diagnostic_output_dir(verbose=True):
+    try:
+        dataDir = os.environ['PRM_DIAGNOSTIC_DIR']
+    except: # use the current directory if the environment variable is not set
+        dataDir = os.path.join(os.getcwd(), 'diagnostic_output')
+
+    if verbose:
+        print(f"Diagnostic outputs will be saved to: {dataDir}")
+
+    return dataDir
+
+
+def get_files_to_analyze():
+    ddir = data_dir(verbose=True)
+    glob_str = os.path.join(ddir, '2025*.csv')
+    fnames = glob(glob_str)
+    fnames = sorted(fnames)
+    return fnames
+
 
 def get_run_metadata(fname='LAr_Purity_Monitor_Runs_All.csv', debug=True):
     # Read in table of run metadata (containing Vc, Vag, Va etc.)
@@ -150,3 +173,13 @@ def read_csv(fname, ch3=None, ch4=None, ch1=None, ch2=None, vunit='mV', tunit='u
 
     return df
 
+# Helper class to hold key/val pairs with dot access
+class Struct(dict):
+    # Usage:
+    #    obj = Struct()
+    #    obj.somefield = "somevalue"
+    def __getattr__(self, key):
+        return self[key]
+
+    def __setattr__(self, key, value):
+        self[key] = value

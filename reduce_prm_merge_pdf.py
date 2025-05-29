@@ -4,7 +4,9 @@ import os
 from glob import glob
 from PyPDF2 import PdfMerger
 
-pdf_dir = 'diagnostic_output'
+import LAr_PrM as pm
+
+pdf_dir = pm.diagnostic_output_dir(verbose=True)
 
 def pdf_merge():
     ''' Merges all the pdf files in a given directory '''
