@@ -303,7 +303,10 @@ for ii in range(len(dfs)):
     plt.fill_between(dfs[ii]['time'], result_anode.best_fit-dely, result_anode.best_fit+dely,
                      color="#ABABAB", label=r'5-$\sigma$ uncertainty band')
     
-    plt.savefig(os.path.join(PRM_DIAGNOSTIC_DIR, f'{meta["Filename"][ii]}_wf_fit.pdf'))
+    fname = meta["Filename"][ii] # e.g. 20250523T093233.csv 
+    froot = os.path.splitext(fname)[0]   # e.g. 20250523T093233 (splitext gives: ['20250523T093233', '.csv'])
+    plt.title(fname)
+    plt.savefig(os.path.join(PRM_DIAGNOSTIC_DIR, f'{froot}_wf_fit.pdf'))
     plt.clf()
 
     reduced_data.append([])
