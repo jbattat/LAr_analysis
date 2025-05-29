@@ -33,7 +33,7 @@ def data_dir():
     try:
         dataDir = os.environ['PRM_DATA_DIR']
     except: # use the current directory if the environment variable is not set
-        dataDir = os.getcwd() 
+        dataDir = os.path.join(os.getcwd(), 'data')
 
     return dataDir
 

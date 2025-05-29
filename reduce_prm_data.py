@@ -31,6 +31,7 @@ class Struct(dict):
 
 # Local directory where PrM data is stored
 data_dir = pm.data_dir()
+print(data_dir)
 
 #FIXME: environment variable?
 PRM_DIAGNOSTIC_DIR = 'diagnostic_output'
