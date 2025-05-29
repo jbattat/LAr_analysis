@@ -6,14 +6,90 @@ import pandas as pd
 import os
 from glob import glob
 
+from lmfit import Model
+
 acol = 'red'  # color for anode waveforms
 ccol = 'blue' # color for cathode waveforms
+
+# Decay time of cathode and anode preamps
+TAU_CATHODE = 135.0
+TAU_ANODE = 133.0
 
 # Column names for metadata
 META_COL_FILE = 'Filename' # Filename
 META_COL_VC = 'Vc [V]'     # Cathode HV
 META_COL_VAG = 'Vag [V]'   # Anode grid HV
 META_COL_VA = 'Va [V]'     # Anode HV
+
+
+# List of column names (these must match the parameter names in the Model()
+CATHODE_PARAMS_TO_LOG = ['t0', 'td', 'tau', 'amp', 'Cf']  # Q0?
+ANODE_PARAMS_TO_LOG = CATHODE_PARAMS_TO_LOG[:] # in general these lists can differ...
+CATHODE_PREFIX = 'Cathode_'
+ANODE_PREFIX = 'Anode_'
+
+def get_wf_params(rc, ra, header=False):
+    # get best-fit parameter values for a single waveform (cathode and anode)
+    # can also get a header string
+
+    # rc: ModelResult (e.g. result_cathode)
+    # ra: ModelResult (e.g. result_anode)
+    # header: if True, return just the header strings (as a list)
+    #            used to make the header/columns for a DataFrame
+    #         if False, then get the actual data values
+    #            used to make the row entries in a DataFrame
+
+    if header:
+        # Need unique names for the output DataFrame
+        # FIXME: could use "prefix" option in Model()...
+        cp = [f'{CATHODE_PREFIX}{p}' for p in CATHODE_PARAMS_TO_LOG]
+        ap = [f'{ANODE_PREFIX}{p}' for p in ANODE_PARAMS_TO_LOG]
+        # List of "derived" quantities
+        der = ['Qc', 'Qa']
+        out = ['Filename']+cp+ap+der
+    else:
+        out = []
+        # cathode values
+        for p in CATHODE_PARAMS_TO_LOG:
+            out.append(rc.params[p].value)
+        # anode values
+        for p in ANODE_PARAMS_TO_LOG:
+            out.append(ra.params[p].value)
+        # derived values (bespoke)
+        out.append(rc.params['Q0'].value) # Qc
+        out.append(ra.params['Q0'].value) # Qa
+        
+    return out  # list
+    
+
+
+
+def get_waveform_data(fnames):
+    # return a list of Pandas DataFrames, each containing time, anode and cathode waveform data
+    # fnames is a list of filenames to read from (list of .csv file names) -- full path
+    dfs = []
+    ndata = len(fnames)
+    for ii, fname in enumerate(fnames):
+        print(f"{ii:05d}/{ndata}: {fname}")
+        dfs.append(read_csv(fname, ch3='anode', ch4='cathode', tunit='us', vunit='mV'))
+    return dfs
+
+########################################################
+# Fitting functions / models
+########################################################
+def cathode_fxn(t, t0, td, tau, amp, Cf, k):
+    exp_rise  = -amp * (1-np.exp(-(t-t0)/tau)) * sigmoid(t, t0, k) * (1-sigmoid(t, t0+td, k))
+    exp_fall  = -amp * (np.exp(td/tau)-1)*np.exp(-(t-t0)/tau) * sigmoid(t, t0+td, k)
+    return exp_rise + exp_fall
+
+def get_cathode_model():
+    return Model(cathode_fxn, independent_vars=['t'])
+
+# FIXME: anode function could also include a "bump" at the beginning...
+def anode_fxn(t, t0, td, tau, amp, Cf, k):
+    exp_rise  = amp * (1-np.exp(-(t-t0)/tau)) * sigmoid(t, t0, k) * (1-sigmoid(t, t0+td, k))
+    exp_fall  = amp * (np.exp(td/tau)-1)*np.exp(-(t-t0)/tau) * sigmoid(t, t0+td, k)
+    return exp_rise + exp_fall
 
 def sigmoid(t, t0, k):
     # https://en.wikipedia.org/wiki/Logistic_function
@@ -22,6 +98,101 @@ def sigmoid(t, t0, k):
     # k:  "growth rate" (width of transition region from 0 to 1)
     #     (can think of k as 1/"sigma" where sigma is the width of the transition)
     return 1/(1+np.exp(-k*(t-t0)))
+
+def get_anode_model():
+    return Model(anode_fxn, independent_vars=['t'])
+
+def get_fitting_models():
+    return [get_cathode_model(), get_anode_model()]
+
+# FIXME: should add a .guess() method for both to guess initial parameter values
+# See e.g.: https://github.com/lmfit/lmfit-py/blob/master/lmfit/models.py
+###    def guess(self, data, x, **kwargs):
+###        """Estimate initial model parameter values from data."""
+###        try:
+###            sval, oval = np.polyfit(x, np.log(abs(data)+1.e-15), 1)
+###        except TypeError:
+###            sval, oval = 1., np.log(abs(max(data)+1.e-9))
+###        pars = self.make_params(amplitude=np.exp(oval), decay=-1.0/sval)
+###        return update_param_vals(pars, self.prefix, **kwargs)
+
+# td is the time from the start to peak of the signal (~ risetime)
+
+# Units:
+# Q0    = pC
+# t, td = us
+# Cf    = pF
+
+def nominal_params_cathode():
+    p = Struct()
+    p.t0 = 10.0 # us
+    p.td = 10.0 # us
+    p.tau = TAU_CATHODE # us
+    p.amp = 200.0 # mV
+    p.Cf = 1.4 # pF
+    p.k = 1.0 # 1/us
+    return p
+
+def nominal_params_anode():
+    p = Struct()
+    p.t0 = 50.0 # us
+    p.td = 10.0 # us
+    p.tau = TAU_ANODE # us
+    p.amp = 10.0 # mV
+    p.Cf = 1.4 # pF
+    p.k = 1.0 # 1/us
+    return p
+
+def get_nominal_params(src=None):
+    # src: waveform source ('cathode' or 'anode')
+    #      case insensitive 'cathode' or 'CAthODe' are equivalent
+    if src is None:
+        return [nominal_params_cathode(), nominal_params_anode()]
+        
+    try:
+        src = src.upper()
+    except:
+        print("nominal_params: invalid parameter src:")
+        print(src)
+        return None
+    
+    src = src.upper()
+    match src:
+        case 'CATHODE':
+            p = nominal_params_cathode()
+        case 'ANODE':
+            p = nominal_params_anode()
+        case _:
+            p = None
+            
+    return p
+        
+def make_params(model, guess, src=None):
+    src = src.upper()
+    match src:
+        case 'CATHODE':
+            pp = model.make_params(t0=dict(value=guess.t0, min=0), # us
+                                   td=dict(value=guess.td, min=0), # us
+                                   tau=dict(value=guess.tau, min=130.0, max=145.0, vary=False), # us
+                                   amp=dict(value=guess.amp, min=0), # mV
+                                   Cf=dict(value=guess.Cf, vary=False), # pF
+                                   k=dict(value=guess.k, vary=False), # 1/us (sigmoid transition rate)
+                                   )
+            pp.add('Q0', expr='amp*Cf*0.5*td/tau') # pC
+        case 'ANODE':  # in principle the models can have different sets of parameters
+            pp = model.make_params(t0=dict(value=guess.t0, min=0), # us
+                                   td=dict(value=guess.td, min=0), # us
+                                   tau=dict(value=guess.tau, min=130.0, max=145.0, vary=False), # us
+                                   amp=dict(value=guess.amp, min=0), # mV
+                                   Cf=dict(value=guess.Cf, vary=False), # pF
+                                   k=dict(value=guess.k, vary=False), # 1/us (sigmoid transition rate)
+                                   )
+            pp.add('Q0', expr='amp*Cf*0.5*td/tau') # pC
+        case _:
+            pp = None
+
+    return pp
+
 
 def data_dir(verbose=False):
     # Get the location of PrM data (set by environment variable)
