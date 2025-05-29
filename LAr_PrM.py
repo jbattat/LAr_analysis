@@ -1,6 +1,7 @@
 # Code for analyzing purity monitor data
 # Wellesley College purity monitor (PrM)
 
+import numpy as np
 import pandas as pd
 import os
 
@@ -12,6 +13,14 @@ META_COL_FILE = 'Filename' # Filename
 META_COL_VC = 'Vc [V]'     # Cathode HV
 META_COL_VAG = 'Vag [V]'   # Anode grid HV
 META_COL_VA = 'Va [V]'     # Anode HV
+
+def sigmoid(t, t0, k):
+    # https://en.wikipedia.org/wiki/Logistic_function
+    # function that transitions smoothly from zero to 1
+    # t0: location of the transition (value of sigmoid is 0.5 there)
+    # k:  "growth rate" (width of transition region from 0 to 1)
+    #     (can think of k as 1/"sigma" where sigma is the width of the transition)
+    return 1/(1+np.exp(-k*(t-t0)))
 
 def data_dir():
     # Get the location of PrM data (set by environment variable)

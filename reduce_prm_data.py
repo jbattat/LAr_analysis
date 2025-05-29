@@ -6,66 +6,313 @@
 
 import os
 import sys
+import glob
 
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from lmfit.models import ExpressionModel
+from lmfit import Model
 
 import LAr_PrM as pm
+
+# FIXME: Move this to LAr_PrM
+# Helper class to hold key/val pairs with dot access
+class Struct(dict):
+    def __getattr__(self, key):
+        return self[key]
+
+    def __setattr__(self, key, value):
+        self[key] = value
+#obj = Struct()
+#obj.somefield = "somevalue"
+#print(obj)
+#print(obj.somefield)
 
 
 # Local directory where PrM data is stored
 data_dir = pm.data_dir()
 
-meta = pm.get_run_metadata()
+#FIXME: environment variable?
+PRM_DIAGNOSTIC_DIR = 'diagnostic_output'
+
+meta = pm.get_run_metadata(debug=False)
 
 # Specify files to be analyzed
-basenames = ['20250522T131342.csv',
-             '20250522T145313.csv']
-fnames = [os.path.join(data_dir, base) for base in basenames]
-print(basenames)
-print(fnames)
+# Get all files in the directory:
 
+# FIXME: could do this with an external list of filenames...
+
+# FIXME: move to LAr_PrM.py
+glob_str = os.path.join(data_dir, '2025*.csv')
+fnames = glob.glob(glob_str)
+fnames = sorted(fnames)
+basenames = [os.path.basename(ff) for ff in fnames]
+#print(basenames[:3])
+#print(fnames[:3])
+
+
+# Load waveforms into a list of DataFrames
 dfs = []
+ndata = len(fnames)
 for ii, fname in enumerate(fnames):
-    print(f"ii, fname = {ii}, {fname}")
+    print(f"{ii:05d}/{ndata}: {fname}")
     dfs.append(pm.read_csv(fname, ch3='anode', ch4='cathode', tunit='us', vunit='mV'))
-    #basename = os.path.basename(fname)
-    #dfs[-1].attrs['vcath'] = pm.get_hv_of_fname(basename, meta, source='C')
 
-# remove mean of baseline
+# remove mean of baseline for all waveforms
 pm.subtract_baselines(dfs, chans=['cathode', 'anode'])
 
-#ii = 1
-#plt.plot(dfs[ii]['time'], dfs[ii]['cathode'], linewidth=0.5, color=pm.ccol)
-#plt.plot(dfs[ii]['time'], dfs[ii]['anode'], linewidth=0.5, color=pm.acol)
-#plt.savefig('junk.pdf')
 
+# Define fitting functions for cathode and anode signals
+# FIXME: this should go in the LAr_PrM.py library
+# FIXME: anode function could also include a "bump" at the beginning...
+def anode_fxn(t, t0, td, tau, amp, Cf, k):
+    exp_rise  = amp * (1-np.exp(-(t-t0)/tau)) * pm.sigmoid(t, t0, k) * (1-pm.sigmoid(t, t0+td, k))
+    exp_fall  = amp * (np.exp(td/tau)-1)*np.exp(-(t-t0)/tau) * pm.sigmoid(t, t0+td, k)
+    return exp_rise + exp_fall
 
 # FIXME: this should go in the LAr_PrM.py library
-vmod = ExpressionModel(" (-2*(1e3*Q0*140)/(td*1.4)) * ( (1-exp(-x/140))*(x<td) + (exp(td/140)-1)*(exp(-x/140))*(x>=td) ) * (1*(x>t0))")
+def cathode_fxn(t, t0, td, tau, amp, Cf, k):
+    exp_rise  = -amp * (1-np.exp(-(t-t0)/tau)) * pm.sigmoid(t, t0, k) * (1-pm.sigmoid(t, t0+td, k))
+    exp_fall  = -amp * (np.exp(td/tau)-1)*np.exp(-(t-t0)/tau) * pm.sigmoid(t, t0+td, k)
+    return exp_rise + exp_fall
 
-# just do 2 waveforms for now
-for ii in range(2):#len(dfs)):
-    t0 = 0.0
-    td = 50.0 # us
-    Cf = 1.4  # pF
-    vgain = 2.0 # unitless
-    # FIXME: model assumes peak starts at first entry, but not true for data!
-    #Q0 = np.max(np.abs(dfs[ii]['cathode'].values))*Cf*td/vgain
-    Q0 = np.max(np.abs(dfs[ii]['cathode'].values))*Cf/vgain
-    print(f"Q0 = {Q0}")
-    result = vmod.fit(dfs[ii]['cathode'], x=dfs[ii]['time'], Q0=Q0, td=td, t0=t0)
-    print(result.fit_report())
-    plt.plot(dfs[ii]['time'], dfs[ii]['cathode'], linewidth=0.5, color=pm.ccol)
-    plt.plot(dfs[ii]['time'], result.best_fit, linewidth=0.5, color='green', linestyle='--')
+# FIXME: should add a .guess() method for both to guess initial parameter values
+# See e.g.: https://github.com/lmfit/lmfit-py/blob/master/lmfit/models.py
+###    def guess(self, data, x, **kwargs):
+###        """Estimate initial model parameter values from data."""
+###        try:
+###            sval, oval = np.polyfit(x, np.log(abs(data)+1.e-15), 1)
+###        except TypeError:
+###            sval, oval = 1., np.log(abs(max(data)+1.e-9))
+###        pars = self.make_params(amplitude=np.exp(oval), decay=-1.0/sval)
+###        return update_param_vals(pars, self.prefix, **kwargs)
 
-    params = vmod.make_params(Q0=Q0, td=td, t0=t0)
-    #plt.plot(dfs[ii]['time'], vmod.eval(params, x=dfs[ii]['time']), linewidth=0.5, color='red', linestyle='--')
+
+
+
+# FIXME: preamp decay time is hard-coded at 140us...
+# FIXME: preamp Cf is hardcoded at 1.4pF
+# td is the time from the start to peak of the signal (~ risetime)
+
+# Units:
+# Q0    = pC
+# t, td = us
+# Cf    = pF
+
+TAU_CATHODE = 135.0
+TAU_ANODE = 133.0
+
+def nominal_params_cathode():
+    p = Struct()
+    p.t0 = 10.0 # us
+    p.td = 10.0 # us
+    p.tau = TAU_CATHODE # us
+    p.amp = 200.0 # mV
+    p.Cf = 1.4 # pF
+    p.k = 1.0 # 1/us
+    return p
+
+def nominal_params_anode():
+    p = Struct()
+    p.t0 = 50.0 # us
+    p.td = 10.0 # us
+    p.tau = TAU_ANODE # us
+    p.amp = 10.0 # mV
+    p.Cf = 1.4 # pF
+    p.k = 1.0 # 1/us
+    return p
+
+def nominal_params(src):
+    # src: waveform source ('cathode' or 'anode')
+    #      case insensitive 'cathode' or 'CAthODe' are equivalent
+    try:
+        src = src.upper()
+    except:
+        print("nominal_params: invalid parameter src:")
+        print(src)
+        return None
     
-    plt.savefig(f'junk_{ii}.pdf')
+    src = src.upper()
+    match src:
+        case 'CATHODE':
+            p = nominal_params_cathode()
+        case 'ANODE':
+            p = nominal_params_anode()
+        case _:
+            p = None
+            
+    return p
+        
+
+
+
+# Cathode
+model_cathode = Model(cathode_fxn, independent_vars=['t'])
+model_anode = Model(anode_fxn, independent_vars=['t'])
+# FIXME: implement "guess" as a method of the Model() (and move all to LAr_PrM)
+guess_cathode = nominal_params(src='cathode')
+guess_anode = nominal_params(src='anode')
+
+# set up guess parameters
+dt = dfs[0]['time'][1]-dfs[0]['time'][0]
+kk = 5/dt
+guess_cathode.k = kk
+guess_anode.k = kk
+
+params_cathode = model_cathode.make_params(t0=dict(value=guess_cathode.t0, min=0), # us
+                                           td=dict(value=guess_cathode.td, min=0), # us
+                                           tau=dict(value=guess_cathode.tau, min=130.0, max=145.0, vary=False), # us
+                                           amp=dict(value=guess_cathode.amp, min=0), # mV
+                                           Cf=dict(value=guess_cathode.Cf, vary=False), # pF
+                                           k=dict(value=guess_cathode.k, vary=False), # 1/us (sigmoid transition rate)
+                                           )
+params_cathode.add('Q0', expr='amp*Cf*0.5*td/tau') # pC
+
+params_anode = model_anode.make_params(t0=dict(value=guess_anode.t0, min=0),  # us
+                                       td=dict(value=guess_anode.td, min=0),  # us
+                                       tau=dict(value=guess_anode.tau, min=130.0, max=145.0, vary=False), # us
+                                       amp=dict(value=guess_anode.amp, min=0), # mV
+                                       Cf=dict(value=guess_anode.Cf, vary=False), # pF
+                                       k=dict(value=guess_anode.k, vary=False), # 1/us (sigmoid transition rate)
+                                       )
+params_anode.add('Q0', expr='amp*Cf*0.5*td/tau') # pC
+
+#def pdump(pdict=None):
+#    cathode_params_to_log = ['t0', 'td', 'tau', 'amp', 'Cf']  # Q0?
+#    anode_params_to_log = cathode_params_to_log[:] # in general these lists can differ...
+#
+#    # Either you call this for the values in which case don't pass any arguments (pdict=None):
+#    #   hdrstr = pdump()
+#    # or you call this for the values in which case you need to pass in a dictionary of ModelResults
+#    #   valstr = pdump(pdict=dict(anode=result_anode, cathode=result_cathode))
+#    
+#    if pdict is None:
+#        cp = [f'Cathode_{p}' for p in cathode_params_to_log]
+#        ap = [f'Anode_{p}' for p in anode_params_to_log]
+#        outstr = '# '
+#        for p in cp:
+#            outstr += f'{p}, '
+#        for p in ap:
+#            outstr += f'{p}, '
+#
+#        outstr += "QA, QC"
+#
+#        # FIXME: add in lifetime, attachment coeff, purity_ppb
+#
+#        # get rid of the last comma (and space)
+#        #outstr = outstr.rstrip()
+#        #outstr = outstr.rstrip(',')
+#        
+#        return outstr
+#
+#    # else, return a string of the *values*
+#    outstr = ''
+#    # cathode, then anode
+#    for p in cathode_params_to_log:
+#        outstr += f"{pdict['cathode'].params[p].value:.4f}, "
+#    for p in anode_params_to_log:
+#        outstr += f"{pdict['anode'].params[p].value:.4f}, "
+#
+#    outstr += f"{pdict['cathode'].params['Q0'].value:.4f}, {pdict['anode'].params['Q0'].value:.4f}"
+#
+#    # FIXME add in lifetime, attachment coeff, purity ppb... (or perhaps do this in "post-processing")
+#    
+#    # get rid of the last comma (and space)
+#    #outstr = outstr.rstrip()
+#    #outstr = outstr.rstrip(',')
+#    #print("outstr = ")
+#    #print(f'[{outstr}]')
+#    return outstr
+
+
+#hdr_str = pdump()
+# pre-pend the filename
+# append the computed quantities like QA, QC, tau, kA, ppb, etc.
+#print(hdr_str)
+
+# FIXME: instead of dumping values into a .csv file, save them directly into a DataFrame
+# which you can then "dump" to a csv if desired (but you can also save to other formats).
+# you can also then "merge" the meta and reduced dataframes
+
+
+# FIXME: move this to LAr_PrM.py
+# list of column names (these must match the parameter names in the Model()
+CATHODE_PARAMS_TO_LOG = ['t0', 'td', 'tau', 'amp', 'Cf']  # Q0?
+ANODE_PARAMS_TO_LOG = CATHODE_PARAMS_TO_LOG[:] # in general these lists can differ...
+CATHODE_PREFIX = 'Cathode_'
+ANODE_PREFIX = 'Anode_'
+
+def get_wf_params(rc, ra, header=False):
+    # get best-fit parameter values for a single waveform (cathode and anode)
+    # can also get a header string
+
+    # rc: ModelResult (e.g. result_cathode)
+    # ra: ModelResult (e.g. result_anode)
+    # header: if True, return just the header strings (as a list)
+    #            used to make the header/columns for a DataFrame
+    #         if False, then get the actual data values
+    #            used to make the row entries in a DataFrame
+
+    if header:
+        # Need unique names for the output DataFrame
+        # FIXME: could use "prefix" option in Model()...
+        cp = [f'{CATHODE_PREFIX}{p}' for p in CATHODE_PARAMS_TO_LOG]
+        ap = [f'{ANODE_PREFIX}{p}' for p in ANODE_PARAMS_TO_LOG]
+        # List of "derived" quantities
+        der = ['Qc', 'Qa']
+        out = ['Filename']+cp+ap+der
+    else:
+        out = []
+        # cathode values
+        for p in CATHODE_PARAMS_TO_LOG:
+            out.append(rc.params[p].value)
+        # anode values
+        for p in ANODE_PARAMS_TO_LOG:
+            out.append(ra.params[p].value)
+        # derived values (bespoke)
+        out.append(rc.params['Q0'].value) # Qc
+        out.append(ra.params['Q0'].value) # Qa
+        
+    return out  # list
+    
+
+# Make a list of lists (eventually convert to DataFrame)
+# + first entry is the header (columns) for the DataFrame
+# + each subsequent entry is a row of the output DataFrame
+reduced_data = []
+reduced_data.append(get_wf_params(None, None, header=True))
+
+#for ii in range(2):  # just do 2 waveforms for now
+for ii in range(len(dfs)):
+    #print(f'\n ii={ii}')
+    result_anode = model_anode.fit(dfs[ii]['anode'], params_anode, t=dfs[ii]['time'])
+    #print("======== Anode =========")
+    #print(result_anode.fit_report())
+
+    result_cathode = model_cathode.fit(dfs[ii]['cathode'], params_cathode, t=dfs[ii]['time'])
+    #print("\n======== Cathode =========")
+    #print(result_cathode.fit_report())
+    
+    plt.plot(dfs[ii]['time'], dfs[ii]['anode'], linewidth=0.5, color=pm.acol)
+    plt.plot(dfs[ii]['time'], dfs[ii]['cathode'], linewidth=0.5, color=pm.ccol)
+    
+    plt.plot(dfs[ii]['time'], result_anode.best_fit, linewidth=0.5, color='green', linestyle='--')
+    plt.plot(dfs[ii]['time'], result_cathode.best_fit, linewidth=0.5, color='black', linestyle='--')
+
+    dely = result_anode.eval_uncertainty(sigma=5)
+    plt.fill_between(dfs[ii]['time'], result_anode.best_fit-dely, result_anode.best_fit+dely,
+                     color="#ABABAB", label=r'5-$\sigma$ uncertainty band')
+    
+    plt.savefig(os.path.join(PRM_DIAGNOSTIC_DIR, f'{meta["Filename"][ii]}_wf_fit.pdf'))
     plt.clf()
 
-sys.exit()
+    reduced_data.append([])
+    reduced_data[-1] += [meta['Filename'][ii]]
+    reduced_data[-1] += get_wf_params(result_cathode, result_anode, header=False)
+
+# Convert list to a dataframe and store it
+dout = pd.DataFrame(reduced_data[1:], columns=reduced_data[0])
+print(dout)
+
+# FIXME: save output to disk
     

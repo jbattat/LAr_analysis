@@ -31,16 +31,41 @@ def electron_drift_speed(mobility, Efield):
     # Inputs: 
     #    mobility: [cm^2/V/s] electron mobility 
     #    Efield: [V/cm] Drift electric field
+    #
     # Outputs:
     #    electron drift speed in cm/us
     #
     # From: https://lar.bnl.gov/properties/trans.html
     return mobility*Efield*1e-6  # cm/us
 
-
 ################################
 ### JB STOPPED HERE ###
 ################################
+def attachment_rate(Efield):
+    # Compute electron attachment rate
+    # 
+    # Inputs: 
+    #    Efield: [V/cm] Drift electric field
+    # 
+    # Outputs:
+    #    electron attachment rate [1/s]
+    #
+    # From: https://lar.bnl.gov/properties/trans.html
+
+    Efield2 = Efield*1e-3  # Convert to kV/cm
+    p = 11
+    a1, a2, a3, a4 = 39.4, 1.20062, 0, 0
+    b1, b2, b3, b4 = 0.925794, 1.63816, 0, 0
+
+    num = (a1/b1) + a1 * Efield2 + a2 * (Efield2**2)+a3 * (Efield2**3)+a4 * (Efield2**4)
+    den = 1 + b1*Efield2 + b2 * (Efield2**2) + b3 * (Efield2**3) + b4 * (Efield2**4)
+    attachment_rate = (10**p) * (num/den)
+    
+    #numerator = (76.2749 / 1.88083) + 76.2749 * field_voltage + 4.24596 * (field_voltage ** 2)
+    #denominator = 1 + 1.88083 * field_voltage + 2.62643 * (field_voltage ** 2) + 0.0632332 * (field_voltage ** 3) - 0.000211009 * (field_voltage ** 4)
+    #attachment_rate = (10 ** 11) * (numerator / denominator)
+    return attachment_rate #/s
+
 
 
 # Attachment rate constant
@@ -170,7 +195,7 @@ def calculate_lifetime(anode_amp, cathode_amp, feedback, decay_time, t1, t2, t3)
     return lifetime
 
 # Attachment rate constant
-def calculate_attachment_rate(field):
+def calculate_attachment_rate_old(field):
     field_voltage = field / 1000  # Convert field
     numerator = (76.2749 / 1.88083) + 76.2749 * field_voltage + 4.24596 * (field_voltage ** 2)
     denominator = 1 + 1.88083 * field_voltage + 2.62643 * (field_voltage ** 2) + 0.0632332 * (field_voltage ** 3) - 0.000211009 * (field_voltage ** 4)
