@@ -399,6 +399,7 @@ def read_reduced(fname=REDUCED_DATA_OUTPUT_FILENAME):
 
 def calc_lifetime(df):
     # FIXME: THIS IS NOT AN ACCURATE LIFETIME CALCULATION!!!
+    # As a crude estimator of lifetime, just take the (ln of the) ratio of the best-fit QA and QC...
     print('\n\n')
     print("WARNING: calc_lifetime() needs to be updated")
     print("         for now it's just a placeholder, but is not")
