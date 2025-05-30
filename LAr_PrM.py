@@ -8,8 +8,8 @@ from glob import glob
 
 from lmfit import Model
 
-acol = 'red'  # color for anode waveforms
-ccol = 'blue' # color for cathode waveforms
+ACOL = 'red'  # color for anode waveforms
+CCOL = 'blue' # color for cathode waveforms
 
 # Decay time of cathode and anode preamps
 TAU_CATHODE = 135.0
@@ -21,6 +21,9 @@ META_COL_VC = 'Vc [V]'     # Cathode HV
 META_COL_VAG = 'Vag [V]'   # Anode grid HV
 META_COL_VA = 'Va [V]'     # Anode HV
 
+# Default name of reduced data file        
+REDUCED_DATA_OUTPUT_FILENAME = 'PrM_Reduced.h5'
+REDUCED_HDF5_KEY = 'reduced'
 
 # List of column names (these must match the parameter names in the Model()
 CATHODE_PARAMS_TO_LOG = ['t0', 'td', 'tau', 'amp', 'Cf']  # Q0?
@@ -62,15 +65,13 @@ def get_wf_params(rc, ra, header=False):
     return out  # list
     
 
-
-
 def get_waveform_data(fnames):
     # return a list of Pandas DataFrames, each containing time, anode and cathode waveform data
     # fnames is a list of filenames to read from (list of .csv file names) -- full path
     dfs = []
     ndata = len(fnames)
     for ii, fname in enumerate(fnames):
-        print(f"{ii:05d}/{ndata}: {fname}")
+        print(f"{ii+1:05d}/{ndata}: {fname}")
         dfs.append(read_csv(fname, ch3='anode', ch4='cathode', tunit='us', vunit='mV'))
     return dfs
 
@@ -354,3 +355,23 @@ class Struct(dict):
 
     def __setattr__(self, key, value):
         self[key] = value
+
+
+def reduced_dir(verbose=False):
+    try:
+        rDir = os.environ['PRM_REDUCED_DIR']
+    except: # use the current directory if the environment variable is not set
+        rDir = os.path.join(os.getcwd(), 'analysis_output')
+
+    if verbose:
+        print(f"Reduced data stored in {rDir}")
+        
+    return rDir
+
+
+def save_reduced(df, fname=REDUCED_DATA_OUTPUT_FILENAME):
+    df.to_hdf(os.path.join(reduced_dir(), REDUCED_DATA_OUTPUT_FILENAME), key=REDUCED_HDF5_KEY)
+
+def read_reduced(fname=REDUCED_DATA_OUTPUT_FILENAME):
+    return pd.read_hdf(os.path.join(reduced_dir(), fname), key=REDUCED_HDF5_KEY)
+

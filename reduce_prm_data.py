@@ -66,8 +66,8 @@ for ii in range(len(dfs)):
     #print("\n======== Cathode =========")
     #print(result_cathode.fit_report())
     
-    plt.plot(dfs[ii]['time'], dfs[ii]['anode'], linewidth=0.5, color=pm.acol)
-    plt.plot(dfs[ii]['time'], dfs[ii]['cathode'], linewidth=0.5, color=pm.ccol)
+    plt.plot(dfs[ii]['time'], dfs[ii]['anode'], linewidth=0.5, color=pm.ACOL)
+    plt.plot(dfs[ii]['time'], dfs[ii]['cathode'], linewidth=0.5, color=pm.CCOL)
     
     plt.plot(dfs[ii]['time'], result_anode.best_fit, linewidth=0.5, color='green', linestyle='--')
     plt.plot(dfs[ii]['time'], result_cathode.best_fit, linewidth=0.5, color='black', linestyle='--')
@@ -91,4 +91,4 @@ dout = pd.DataFrame(reduced_data[1:], columns=reduced_data[0])
 print(dout)
 
 # FIXME: save output to disk
-    
+pm.save_reduced(dout)    
