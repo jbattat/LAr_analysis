@@ -16,7 +16,7 @@ TAU_CATHODE = 135.0
 TAU_ANODE = 133.0
 
 # Column names for metadata
-META_COL_FILE = 'Filename' # Filename
+COL_FILENAME = 'Filename' # Filename
 META_COL_VC = 'Vc [V]'     # Cathode HV
 META_COL_VAG = 'Vag [V]'   # Anode grid HV
 META_COL_VA = 'Va [V]'     # Anode HV
@@ -49,7 +49,7 @@ def get_wf_params(rc, ra, header=False):
         ap = [f'{ANODE_PREFIX}{p}' for p in ANODE_PARAMS_TO_LOG]
         # List of "derived" quantities
         der = ['Qc', 'Qa']
-        out = ['Filename']+cp+ap+der
+        out = cp+ap+der
     else:
         out = []
         # cathode values
@@ -64,6 +64,24 @@ def get_wf_params(rc, ra, header=False):
         
     return out  # list
     
+def get_meta_params(fname, metadf, header=False):
+    if header:
+        # Need unique names for the output DataFrame
+        # FIXME: could use "prefix" option in Model()...
+        out = [META_COL_VC, META_COL_VAG, META_COL_VA]
+    else:
+        # match the fname to the df row and get those values
+        out = []
+        out += get_hv_of_fname(fname, metadf, source='all')
+
+    return out
+
+def get_reduced_header():
+    hdr = []
+    hdr += [COL_FILENAME]
+    hdr += get_meta_params(None, None, header=True)
+    hdr += get_wf_params(None, None, header=True)
+    return hdr
 
 def get_waveform_data(fnames):
     # return a list of Pandas DataFrames, each containing time, anode and cathode waveform data
@@ -232,6 +250,7 @@ def get_files_to_analyze():
     return fnames
 
 
+
 def get_run_metadata(fname='LAr_Purity_Monitor_Runs_All.csv', debug=True):
     # Read in table of run metadata (containing Vc, Vag, Va etc.)
     # 
@@ -252,7 +271,7 @@ def get_hv_of_fname(fname, df, source='all'):
     # return the PrM HV value(s) for a given dataset
     # source can be C, AG, A or ALL (Cathode, Anode Grid, Anode, or all 3 returned as a list [Vc, Vag, Va])
 
-    cond = (df[META_COL_FILE] == fname)
+    cond = (df[COL_FILENAME] == fname)
     # FIXME: handle case where the requested file is not present in the dataframe
     
     source = source.upper()
