@@ -4,6 +4,11 @@
 # to an "output metadata" file
 # That output file can then be used to compute impurity level / lifetime
 
+# FIXME: need to indicate if the fit is valid (by some metric)
+#   e.g. there are datasets where the anode signal is too small to be seen
+#   (very poor purity, or perhaps E2=E3=0 for some cathode tests)
+#   can add a "Cathode_valid" and "Anode_valid" flag to the reduced dataframe
+
 import os
 import sys
 
@@ -109,7 +114,7 @@ for ii in range(len(dfs)):
     plt.title(fname)
     plt.savefig(os.path.join(diagnostic_dir, f'{froot}_wf_fit.pdf'))
     plt.clf()
-    
+
     reduced_data.append([])
     reduced_data[-1] += [fname]
     reduced_data[-1] += pm.get_meta_params(fname, meta)

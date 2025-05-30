@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import os
 from glob import glob
+from datetime import datetime
 
 from lmfit import Model
 
@@ -28,6 +29,8 @@ REDUCED_HDF5_KEY = 'reduced'
 # List of column names (these must match the parameter names in the Model()
 CATHODE_PARAMS_TO_LOG = ['t0', 'td', 'tau', 'amp', 'Cf']  # Q0?
 ANODE_PARAMS_TO_LOG = CATHODE_PARAMS_TO_LOG[:] # in general these lists can differ...
+Q_CATHODE = 'Qc'
+Q_ANODE = 'Qa'
 CATHODE_PREFIX = 'Cathode_'
 ANODE_PREFIX = 'Anode_'
 
@@ -48,7 +51,7 @@ def get_wf_params(rc, ra, header=False):
         cp = [f'{CATHODE_PREFIX}{p}' for p in CATHODE_PARAMS_TO_LOG]
         ap = [f'{ANODE_PREFIX}{p}' for p in ANODE_PARAMS_TO_LOG]
         # List of "derived" quantities
-        der = ['Qc', 'Qa']
+        der = [Q_CATHODE, Q_ANODE]
         out = cp+ap+der
     else:
         out = []
@@ -394,3 +397,32 @@ def save_reduced(df, fname=REDUCED_DATA_OUTPUT_FILENAME):
 def read_reduced(fname=REDUCED_DATA_OUTPUT_FILENAME):
     return pd.read_hdf(os.path.join(reduced_dir(), fname), key=REDUCED_HDF5_KEY)
 
+def calc_lifetime(df):
+    # FIXME: THIS IS NOT AN ACCURATE LIFETIME CALCULATION!!!
+    print('\n\n')
+    print("WARNING: calc_lifetime() needs to be updated")
+    print("         for now it's just a placeholder, but is not")
+    print("         calculating the lifetime accurately!")
+    print('\n\n')
+    # calculate the electron lifetime
+    # given various fit parameters stored in a "reduced" DataFrame
+    Qc = df[Q_CATHODE] # pC?
+    Qa = df[Q_ANODE] # pC?
+    t0C = df['Cathode_t0'] # us  # FIXME: use keywords?
+    tdC = df['Cathode_td'] # us
+    t0A = df['Anode_t0'] # us
+    dt = t0A - (t0C+tdC)  # us
+    tlife = -dt/np.log(Qa/Qc)  # us
+    
+    return tlife
+
+
+def get_datetimes(df):
+    # Convert filename column to timestamps
+    fnames = df[COL_FILENAME].to_list() # e.g. ['20250522T130440.csv', ...]
+    timestrs = [os.path.splitext(ff)[0] for ff in fnames]  # e.g. ['20250522T130440', ...]
+    times = [datetime.strptime(tt, '%Y%m%dT%H%M%S') for tt in timestrs]
+    times_np = np.array(times, dtype='datetime64')
+    #print(times)
+    #print(times_np)
+    return times_np
